@@ -81,12 +81,16 @@ console.log("");
 
 const transporter = nodemailer.createTransport({
   host: 'smtp.mail.yahoo.com',
-  port: 465,
-  secure: true,
+  port: 587,
+  secure: false,
+  requireTLS: true,
   auth: {
     user: process.env.YAHOO_EMAIL,
     pass: process.env.YAHOO_APP_PASSWORD
-  }
+  },
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 10000
 });
 
 const anthropic = CONFIG.claudeApiKey ? new Anthropic({ apiKey: CONFIG.claudeApiKey }) : null;
