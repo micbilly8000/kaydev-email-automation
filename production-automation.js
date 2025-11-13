@@ -440,3 +440,12 @@ imap.once('end', () => {
 
 console.log("🔌 Connecting to Yahoo IMAP...");
 imap.connect();
+
+// Run every 5 minutes
+setInterval(() => {
+  console.log("\n" + "=".repeat(60));
+  console.log("  🔄 SCHEDULED CHECK - " + new Date().toLocaleString());
+  console.log("=".repeat(60));
+  console.log("🔌 Connecting to Yahoo IMAP...");
+  imap.connect();
+}, 5 * 60 * 1000); // 5 minutes in milliseconds
