@@ -80,23 +80,13 @@ console.log(`   Scanning last ${CONFIG.maxEmailsToProcess} emails`);
 console.log("");
 
 const transporter = nodemailer.createTransport({
-  host: 'smtp.mail.yahoo.com',
-  port: 465,
-  secure: true,
+  host: process.env.SMTP_HOST || 'mail.smtp2go.com',
+  port: 2525,
   auth: {
-    user: process.env.YAHOO_EMAIL,
-    pass: process.env.YAHOO_APP_PASSWORD
-  },
-  tls: {
-    rejectUnauthorized: false,
-    minVersion: 'TLSv1.2'
-  },
-  connectionTimeout: 30000,
-  greetingTimeout: 30000,
-  socketTimeout: 30000,
-  debug: true,
-  logger: true
-});
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASSWORD
+  }
+});;
 
 const anthropic = CONFIG.claudeApiKey ? new Anthropic({ apiKey: CONFIG.claudeApiKey }) : null;
 
