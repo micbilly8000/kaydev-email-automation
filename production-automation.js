@@ -111,7 +111,7 @@ function extractMindlanceKeyFields(body) {
   const jobIdMatch = body.match(/Job Id:\s*([^\n]+)/i);
   const categoryMatch = body.match(/Category:\s*([^\n]+)/i);
   const dueDateMatch = body.match(/Due Date:\s*([^\n]+)/i);
-  
+
   let keyFields = '';
   if (roleMatch || locationMatch || durationMatch || jobIdMatch || categoryMatch || dueDateMatch) {
     keyFields = '═══════════════════════════════════════\n';
@@ -123,8 +123,30 @@ function extractMindlanceKeyFields(body) {
     if (dueDateMatch) keyFields += `Due Date: ${dueDateMatch[1].trim()}\n`;
     keyFields += '═══════════════════════════════════════\n\n';
   }
-  
+
   return keyFields;
+}
+
+function removeMVPExtractedFields(body) {
+  let cleaned = body;
+  // Remove lines containing MVP key fields that were extracted
+  cleaned = cleaned.replace(/DUE DATE:\s*[^\n]+\n*/i, '');
+  cleaned = cleaned.replace(/Duration of engagement:\s*[^\n]+\n*/i, '');
+  cleaned = cleaned.replace(/Location:\s*[^\n]+\n*/i, '');
+  cleaned = cleaned.replace(/Targeted start:\s*[^\n]+\n*/i, '');
+  return cleaned;
+}
+
+function removeMindlanceExtractedFields(body) {
+  let cleaned = body;
+  // Remove lines containing Mindlance key fields that were extracted
+  cleaned = cleaned.replace(/Role:\s*[^\n]+\n*/i, '');
+  cleaned = cleaned.replace(/Location:\s*[^\n]+\n*/i, '');
+  cleaned = cleaned.replace(/Duration:\s*[^\n]+\n*/i, '');
+  cleaned = cleaned.replace(/Job Id:\s*[^\n]+\n*/i, '');
+  cleaned = cleaned.replace(/Category:\s*[^\n]+\n*/i, '');
+  cleaned = cleaned.replace(/Due Date:\s*[^\n]+\n*/i, '');
+  return cleaned;
 }
 
 function cleanEmailBody(body, fromEmail) {
@@ -365,7 +387,7 @@ imap.once('ready', () => {
         console.log("   ✓ From contractor - processing");
         
         const cleanBody = cleanEmailBody(email.body, email.from);
-        
+
         let jobData = null;
         if (anthropic) {
           console.log("   🤖 Parsing with Claude...");
@@ -375,30 +397,33 @@ imap.once('ready', () => {
             console.log(`   ✓ Confidence: ${(jobData.confidence * 100).toFixed(0)}%`);
           }
         }
-        
+
         try {
           console.log(`   📤 Forwarding to ${CONFIG.recruiterEmails.length} recruiter(s)...`);
-          
+
           let emailBody = `🚨 KayDev New Job Posting\n\n`;
-          
+          let finalCleanBody = cleanBody;
+
           const isMindlance = email.from.toLowerCase().includes('mwilliy2k@gmail') || email.from.toLowerCase().includes('aakashp@mindlance');
           const isMVP = email.from.toLowerCase().includes('michealbillings76@gmail') || email.from.toLowerCase().includes('nancyg@mvpconsultingplus');
-          
+
           if (isMindlance) {
             const keyFields = extractMindlanceKeyFields(email.body);
             if (keyFields) {
               emailBody += keyFields;
+              finalCleanBody = removeMindlanceExtractedFields(finalCleanBody);
             }
           }
-          
+
           if (isMVP) {
             const keyFields = extractMVPKeyFields(email.body);
             if (keyFields) {
               emailBody += keyFields;
+              finalCleanBody = removeMVPExtractedFields(finalCleanBody);
             }
           }
-          
-          emailBody += cleanBody;
+
+          emailBody += finalCleanBody;
           
           await transporter.sendMail({
             from: process.env.YAHOO_EMAIL,
