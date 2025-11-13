@@ -4,14 +4,48 @@ import { simpleParser } from 'mailparser';
 import nodemailer from 'nodemailer';
 import Anthropic from '@anthropic-ai/sdk';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 dotenv.config();
+
+// Track forwarded emails to avoid duplicates
+const FORWARDED_LOG = __dirname + '/forwarded-emails.json';
+
+function loadForwardedEmails() {
+  try {
+    if (fs.existsSync(FORWARDED_LOG)) {
+      const data = fs.readFileSync(FORWARDED_LOG, 'utf8');
+      return new Set(JSON.parse(data));
+    }
+  } catch (error) {
+    console.log('⚠️  Could not load forwarded log, starting fresh');
+  }
+  return new Set();
+}
+
+function saveForwardedEmail(emailId) {
+  try {
+    const forwarded = loadForwardedEmails();
+    forwarded.add(emailId);
+    fs.writeFileSync(FORWARDED_LOG, JSON.stringify([...forwarded]), 'utf8');
+  } catch (error) {
+    console.error('⚠️  Could not save to forwarded log:', error.message);
+  }
+}
+
+const forwardedEmails = loadForwardedEmails();
+console.log(`📋 Loaded ${forwardedEmails.size} previously forwarded emails`);
 
 const CONFIG = {
   recruiterEmails: (process.env.RECRUITER_EMAILS || "").split(",").filter(Boolean),
   contractorEmails: (process.env.CONTRACTOR_EMAILS || "").split(",").filter(Boolean),
   claudeApiKey: process.env.ANTHROPIC_API_KEY,
-  maxEmailsToProcess: 20,
+  maxEmailsToProcess: 30, // Changed from 20 to 30
   ignoreFromDomains: [
     'railway.app',
     'railway.com',
@@ -155,13 +189,24 @@ function cleanEmailBody(body, fromEmail) {
     
     cleaned = cleaned.replace(/Greetings,?[\s\S]*?Please advise if you require any information or any help from our end\.?/gi, '');
     cleaned = cleaned.replace(/Regards,?[\s\S]*?Aakash[\s\S]*?mindlance\.com.*$/mi, '');
+    
+    const keyFieldsEnd = cleaned.indexOf('═══════════════════════════════════════');
+    if (keyFieldsEnd > -1) {
+      const afterKeyFields = cleaned.substring(keyFieldsEnd + 50);
+      const beforeKeyFields = cleaned.substring(0, keyFieldsEnd + 50);
+      cleaned = beforeKeyFields + afterKeyFields.replace(/Due Date:\s*[^\n]+\n?/gi, '');
+    }
+    
     cleaned = cleaned.replace(/Team Recruitment/gi, '');
-    cleaned = cleaned.replace(/w: \d{3}-\d{3}-\d{4}/gi, '');
-    cleaned = cleaned.replace(/aakashp@mindlance\.com/gi, '');
     cleaned = cleaned.replace(/mindlance open jobs/gi, '');
-    cleaned = cleaned.replace(/www\.mindlance\.com/gi, '');
     cleaned = cleaned.replace(/Union, NJ/gi, '');
     cleaned = cleaned.replace(/Follow us on.*/gi, '');
+    cleaned = cleaned.replace(/w: \d{3}-\d{3}-\d{4}/gi, '');
+    cleaned = cleaned.replace(/aakashp@mindlance\.com/gi, '');
+    cleaned = cleaned.replace(/www\.mindlance\.com/gi, '');
+    cleaned = cleaned.replace(/<http:\/\/[^>]*>/gi, '');
+    cleaned = cleaned.replace(/<https:\/\/[^>]*>/gi, '');
+    cleaned = cleaned.replace(/<mailto:[^>]*>/gi, '');
     cleaned = cleaned.replace(/To provide feedback.*$/mi, '');
     cleaned = cleaned.replace(/To unsubscribe.*$/mi, '');
     cleaned = cleaned.replace(/feedback@mindlance\.com/gi, '');
@@ -323,7 +368,8 @@ imap.once('ready', () => {
             subject: parsed.subject || '',
             from: parsed.from?.text || '',
             date: parsed.date,
-            body: parsed.text || ''
+            body: parsed.text || '',
+            messageId: parsed.messageId || `${uid}-${parsed.date?.getTime()}`
           });
         });
       });
@@ -340,15 +386,14 @@ imap.once('ready', () => {
         console.log(`   From: ${email.from}`);
         console.log(`   Date: ${email.date?.toLocaleString()}`);
         
-        const isRead = email.flags.includes('\\Seen');
-        if (isRead) {
-          console.log("   ⏭️  Already processed (marked as read)");
+        // Check if already forwarded (REMOVED read/unread check)
+        if (forwardedEmails.has(email.messageId)) {
+          console.log("   ⏭️  Already forwarded previously");
           continue;
         }
         
         if (isSystemEmail(email.from, email.subject)) {
-          console.log("   🤖 System notification, marking as read");
-          imap.addFlags(email.uid, ['\\Seen'], () => {});
+          console.log("   🤖 System notification, skipping");
           continue;
         }
         
@@ -357,8 +402,7 @@ imap.once('ready', () => {
         );
         
         if (!isFromContractor) {
-          console.log("   ⏭️  Not from contractor, marking as read");
-          imap.addFlags(email.uid, ['\\Seen'], () => {});
+          console.log("   ⏭️  Not from contractor, skipping");
           continue;
         }
         
@@ -410,9 +454,9 @@ imap.once('ready', () => {
           console.log("   ✅ Forwarded successfully!");
           processedCount++;
           
-          imap.addFlags(email.uid, ['\\Seen'], (err) => {
-            if (!err) console.log("   ✓ Marked as read");
-          });
+          // Save to forwarded log
+          saveForwardedEmail(email.messageId);
+          console.log("   ✓ Logged as forwarded");
           
         } catch (error) {
           console.log(`   ❌ Forward failed: ${error.message}`);
@@ -448,4 +492,4 @@ setInterval(() => {
   console.log("=".repeat(60));
   console.log("🔌 Connecting to Yahoo IMAP...");
   imap.connect();
-}, 5 * 60 * 1000); // 5 minutes in milliseconds
+}, 5 * 60 * 1000);
